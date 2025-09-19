@@ -6,55 +6,73 @@ from dotenv import load_dotenv
 import time
 import structlog
 
+
 from houseagent.agent_listener import AgentListener
 
-# Load configuration from .env file
-load_dotenv()
 
-# Set up basic logging configuration
+load_dotenv()
 logger = structlog.get_logger(__name__)
 
-def on_connect(client, userdata, flags, rc):
-    logger.info("Connected to MQTT broker")
-    topic = os.getenv('MESSAGE_BUNDLE_TOPIC', 'your/input/topic/here')
-    logger.debug(f"Subscribing to topic: {topic}")
-    client.subscribe(topic)
-    logger.info(f"Connected with result code {rc}. Subscribed to topic: {topic}")
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    if rc == 0:
+        logger.info("Connected to MQTT broker")
+        # Correctly read MESSAGE_BUNDLE_TOPIC from the .env file
+        topic = os.getenv('MESSAGE_BUNDLE_TOPIC')
+        if topic:
+            client.subscribe(topic)
+            logger.info(f"Subscribed to topic: {topic}")
+        else:
+            logger.error(
+                "MESSAGE_BUNDLE_TOPIC not found in .env file. Please check your configuration."
+            )
+            client.disconnect()
+    else:
+        logger.error(f"Failed to connect, return code {rc}")
+
 
 def on_message(client, userdata, msg):
-    logger.info("Received message")
-    logger.debug(f"Message: {msg.payload}")
+    logger.info("Received message bundle")
     agent_client.on_message(client, userdata, msg)
 
-def on_disconnect(client, userdata, rc):
-    logger.info("Disconnected from MQTT broker")
-    if rc != 0:
-        logger.error(f"Unexpected disconnection. Result code: {rc}")
+
+def on_disconnect(client, userdata, *args):
+    logger.info(f"Disconnected from MQTT broker with args: {args}")
+    if args and args[0] != 0:
+        logger.error(f"Unexpected disconnection. Reason code: {args[0]}")
 
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "agent")
-
+# Use the modern V2 API
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "agent")
 client.on_connect = on_connect
 client.on_message = on_message
 client.on_disconnect = on_disconnect
+
 
 broker_address = os.getenv('MQTT_BROKER_ADDRESS', 'localhost')
 port_number = int(os.getenv('MQTT_PORT', 1883))
 keep_alive_interval = int(os.getenv('MQTT_KEEP_ALIVE_INTERVAL', 60))
 
-client.connect(broker_address, port_number, keep_alive_interval)
-logging.debug(f"Connected to MQTT broker at {broker_address}:{port_number}")
+
+try:
+    client.connect(broker_address, port_number, keep_alive_interval)
+except Exception as e:
+    logger.error(f"Failed to connect to MQTT broker: {e}")
+    exit(1)
+
 
 agent_client = AgentListener(client)
-
 client.loop_start()
+
 
 try:
     while not agent_client.stopped:
         time.sleep(1)
 except KeyboardInterrupt:
-    logging.info("Shutting down...")
+    logging.info("Shutting down agent...")
     agent_client.stop()
 
+
 client.loop_stop()
-client.disconnect
+client.disconnect()
+logger.info("Agent shut down successfully.")

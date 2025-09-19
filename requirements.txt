@@ -5,3 +5,4 @@ langchain
 structlog
 langchain-community
 pytest
+langchain-ollama

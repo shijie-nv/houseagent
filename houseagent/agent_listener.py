@@ -20,8 +20,7 @@ class AgentListener:
             self.logger.error(f"Error decoding JSON: {msg.payload}")
             return
 
-        output = {'messages': message}
-        json_output = json.dumps(output)
+        json_output = json.dumps(message)
 
         # Log the sent batched messages at INFO level
         self.logger.info(f"Sent batched messages: {json_output}")

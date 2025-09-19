@@ -1,26 +1,16 @@
-import logging
 import structlog
 import json
 import os
 import re
 
-# from langchain.chat_models import ChatOpenAI
-from langchain_community.chat_models import ChatOpenAI
-
-from langchain import PromptTemplate, LLMChain
+from langchain_ollama import ChatOllama
 
 from langchain.prompts import (
     ChatPromptTemplate,
-    PromptTemplate,
     SystemMessagePromptTemplate,
-    AIMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
-from langchain.schema import (
-    AIMessage,
-    HumanMessage,
-    SystemMessage
-)
+
 
 class HouseBot:
     def __init__(self):
@@ -36,32 +26,52 @@ class HouseBot:
         with open(f'{prompt_dir}/{human_primpt_filename}', 'r') as f:
             human_prompt_template = f.read()
         with open(f'{prompt_dir}/{default_state_filename}', 'r') as f:
-            self.default_state = f.read()
+            self.default_state = json.load(f)
 
-        self.system_message_prompt = SystemMessagePromptTemplate.from_template(system_prompt_template)
-        self.human_message_prompt = HumanMessagePromptTemplate.from_template(human_prompt_template)
+        self.system_message_prompt = SystemMessagePromptTemplate.from_template(
+            system_prompt_template
+        )
+        self.human_message_prompt = HumanMessagePromptTemplate.from_template(
+            human_prompt_template
+        )
 
-        openai_model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
-        openai_temperature = os.getenv("OPENAI_TEMPERATURE", "0")
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3")
+        ollama_temperature = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
 
-        self.chat = ChatOpenAI(model_name=openai_model, temperature=openai_temperature)
+        self.chat = ChatOllama(model=ollama_model, temperature=ollama_temperature)
 
     def strip_emojis(self, text):
         RE_EMOJI = re.compile('[\U00010000-\U0010ffff]', flags=re.UNICODE)
         return RE_EMOJI.sub(r'', text)
 
     def generate_response(self, current_state, last_state):
-        self.logger.debug("let's make a request")
 
-        chat_prompt = ChatPromptTemplate.from_messages([self.system_message_prompt, self.human_message_prompt])
-        # get a chat completion from the formatted messages
-        chain = LLMChain(llm=self.chat, prompt=chat_prompt)
-        result = chain.run(default_state=json.dumps(self.default_state, separators=(',', ':')), current_state=current_state, last_state=last_state)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                self.system_message_prompt,
+                self.human_message_prompt,
+            ]
+        )
 
-        self.logger.debug(f"let's make a request: {result}")
-        # print(result.llm_output)
+        # Use new RunnableSequence syntax: prompt | llm
+        chain = chat_prompt | self.chat
 
-        #strip emoji
-        result = self.strip_emojis(result)
+        default_state_text = json.dumps(self.default_state)
 
-        return result
+        result = chain.invoke(
+            {
+                "default_state": default_state_text,
+                "current_state": current_state,
+                "last_state": last_state,
+            }
+        )
+
+        # Extract content from result
+        output = result.content if hasattr(result, 'content') else str(result)
+
+        # strip emoji (some terminals or downstream systems may not support emojis)
+        output = self.strip_emojis(output)
+
+        self.logger.info(f"Generated response: {output}")
+
+        return output
