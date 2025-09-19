@@ -1,6 +1,8 @@
 import os
 import time
 import json
+import argparse
+from dotenv import load_dotenv
 
 from langchain_ollama import ChatOllama
 from langchain.prompts import (
@@ -9,14 +11,20 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
 )
 
+# Load environment variables
+load_dotenv()
 
 # Configuration
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
+
 PROMPT_DIR = "prompts"
-OLLAMA_MODEL = "llama3"
-OLLAMA_TEMPERATURE = 0.2
 LAST_STATE = "{}"
-CURRENT_STATE_1 = '{"messages": [{"description of activity": "A man is standing in the office space, looking at his cell phone.", "number of people": "1", "people": [{"activity": "looking at cell phone", "description of person": {"clothing": "white shirt"}}]}]}'
-CURRENT_STATE_2 = '{"messages": [{"entity_id": "binary_sensor.front_door", "from_state": "off", "to_state": "on"}, {"entity_id": "binary_sensor.frontyard_motion", "from_state": "off", "to_state": "on"}, {"entity_id": "binary_sensor.front_door", "from_state": "on", "to_state": "off"}]}'
+
+CURRENT_STATE_EXAMPLES = [
+    '{"messages": [{"description of activity": "A man is standing in the office space, looking at his cell phone.", "number of people": "1", "people": [{"activity": "looking at cell phone", "description of person": {"clothing": "white shirt"}}]}]}',
+    '{"messages": [{"entity_id": "binary_sensor.front_door", "from_state": "off", "to_state": "on"}, {"entity_id": "binary_sensor.frontyard_motion", "from_state": "off", "to_state": "on"}, {"entity_id": "binary_sensor.front_door", "from_state": "on", "to_state": "off"}]}',
+]
 
 
 def simple_test():
@@ -89,8 +97,8 @@ def run_once(
     )
     elapsed = time.perf_counter() - start
 
-    print(type(result))
-    print(result)
+    # print(type(result))
+    # print(result)
 
     output = result.content if hasattr(result, 'content') else str(result)
     print(f"Model: {model_name}")
@@ -101,17 +109,39 @@ def run_once(
     return output
 
 
-def main() -> None:
-    # print("=== Simple Test ===")
-    # simple_test()
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description="Test LLM with different examples")
+    parser.add_argument(
+        "--case",
+        type=int,
+        default=1,
+        help="Specify which test case to run (1-based index). Default is 1.",
+    )
+    return parser.parse_args()
 
-    print("\n=== Full Test ===")
+
+def main() -> None:
+    args = parse_args()
+
+    # Validate case index
+    if args.case < 1 or args.case > len(CURRENT_STATE_EXAMPLES):
+        print(
+            f"Error: Case {args.case} not found. Available: 1-{len(CURRENT_STATE_EXAMPLES)}"
+        )
+        return
+
+    # Convert to 0-based index
+    case_index = args.case - 1
+    current_state = CURRENT_STATE_EXAMPLES[case_index]
+
+    print(f"\n=== Running Case {args.case} ===")
+
     run_once(
         model_name=OLLAMA_MODEL,
         temperature=OLLAMA_TEMPERATURE,
         prompt_dir=PROMPT_DIR,
-        # current_state=CURRENT_STATE_1,
-        current_state=CURRENT_STATE_2,
+        current_state=current_state,
         last_state=LAST_STATE,
     )
 
